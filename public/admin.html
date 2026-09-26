@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>لوحة تحكم | توصيل طلبات البرك</title>
+<style>
+*{box-sizing:border-box}
+body{
+margin:0;
+font-family:Arial,Tahoma,sans-serif;
+background:#f4f7f6;
+color:#17221d
+}
+header{
+background:linear-gradient(135deg,#087f5b,#05a878);
+color:white;
+padding:20px;
+display:flex;
+justify-content:space-between;
+align-items:center;
+box-shadow:0 3px 12px #0002
+}
+header h1{margin:0;font-size:22px}
+header button{
+background:#fff;color:#087f5b;border:0;border-radius:10px;
+padding:10px 15px;font-weight:bold
+}
+.container{max-width:1200px;margin:auto;padding:20px}
+.card{
+background:white;border-radius:16px;padding:20px;margin-bottom:18px;
+box-shadow:0 3px 15px #00000012
+}
+.hidden{display:none!important}
+.login{
+max-width:420px;margin:70px auto
+}
+input,select{
+width:100%;padding:13px;margin:7px 0;
+border:1px solid #ddd;border-radius:10px;font-size:15px
+}
+button{
+border:0;border-radius:10px;padding:12px 16px;
+background:#087f5b;color:white;font-weight:bold;cursor:pointer
+}
+button.secondary{background:#e8f4ef;color:#087f5b}
+.msg{padding:10px;margin-top:10px;border-radius:8px;background:#fff0f0;color:#b42318}
+.stats{
+display:grid;grid-template-columns:repeat(4,1fr);gap:15px
+}
+.stat{
+padding:20px;border-radius:15px;background:white;
+box-shadow:0 3px 15px #00000012
+}
+.stat small{color:#777}
+.stat strong{display:block;font-size:28px;margin-top:8px;color:#087f5b}
+table{width:100%;border-collapse:collapse}
+th,td{padding:12px;border-bottom:1px solid #eee;text-align:right}
+th{background:#f1f8f5}
+.badge{
+display:inline-block;padding:6px 9px;border-radius:20px;
+background:#e8f4ef;color:#087f5b;font-size:12px
+}
+.order-actions button{margin:3px}
+@media(max-width:800px){
+.stats{grid-template-columns:repeat(2,1fr)}
+.table-wrap{overflow-x:auto}
+}
+@media(max-width:500px){
+.stats{grid-template-columns:1fr}
+}
+</style>
+</head>
+
+<body>
+
+<div id="loginPage" class="container">
+<div class="card login">
+<h2>🔐 دخول الإدارة</h2>
+<p>لوحة تحكم توصيل طلبات البرك</p>
+
+<input id="phone" placeholder="رقم الجوال">
+<input id="password" type="password" placeholder="كلمة المرور">
+
+<button onclick="login()" style="width:100%">دخول لوحة الإدارة</button>
+
+<div id="loginMsg" class="msg hidden"></div>
+</div>
+</div>
+
+<div id="app" class="hidden">
+
+<header>
+<h1>🚚 توصيل طلبات البرك</h1>
+<button onclick="logout()">تسجيل الخروج</button>
+</header>
+
+<div class="container">
+
+<div class="card">
+<h2>📊 نظرة عامة</h2>
+<div class="stats">
+<div class="stat">
+<small>إجمالي الطلبات</small>
+<strong id="total">0</strong>
+</div>
+
+<div class="stat">
+<small>طلبات جديدة</small>
+<strong id="pending">0</strong>
+</div>
+
+<div class="stat">
+<small>قيد التوصيل</small>
+<strong id="delivery">0</strong>
+</div>
+
+<div class="stat">
+<small>تم التسليم</small>
+<strong id="done">0</strong>
+</div>
+</div>
+</div>
+
+<div class="card">
+<div style="display:flex;justify-content:space-between;align-items:center;gap:10px">
+<h2>📦 جميع الطلبات</h2>
+<button onclick="loadOrders()">🔄 تحديث</button>
+</div>
+
+<div class="table-wrap">
+<table>
+<thead>
+<tr>
+<th>#</th>
+<th>العميل</th>
+<th>الخدمة</th>
+<th>المتجر</th>
+<th>الحالة</th>
+<th>الرسوم</th>
+<th>الإجراء</th>
+</tr>
+</thead>
+<tbody id="orders"></tbody>
+</table>
+</div>
+</div>
+
+</div>
+</div>
+
+<script>
+let token=localStorage.getItem("admin_token");
+
+function $(id){
+return document.getElementById(id);
+}
+
+function status(s){
+return({
+pending_offers:"بانتظار العروض",
+accepted:"تم قبول المندوب",
+in_delivery:"قيد التوصيل",
+delivered:"تم التسليم",
+cancelled:"ملغي"
+})[s]||s;
+}
+
+async function api(url,opt={}){
+opt.headers={
+"Content-Type":"application/json",
+...(opt.headers||{})
+};
+
+if(token)
+opt.headers.Authorization="Bearer "+token;
+
+const r=await fetch(url,opt);
+const d=await r.json().catch(()=>({}));
+
+if(!r.ok)
+throw Error(d.error||"حدث خطأ");
+
+return d;
+}
+
+async function login(){
+try{
+const phone=$("phone").value.trim();
+const password=$("password").value;
+
+if(!phone||!password){
+$("loginMsg").textContent="اكتب رقم الجوال وكلمة المرور";
+$("loginMsg").classList.remove("hidden");
+return;
+}
+
+const d=await api("/api/auth/login",{
+method:"POST",
+body:JSON.stringify({phone,password})
+});
+
+if(d.user.role!=="admin"){
+throw Error("هذا الحساب ليس حساب مدير");
+}
+
+token=d.token;
+localStorage.setItem("admin_token",token);
+
+$("loginPage").classList.add("hidden");
+$("app").classList.remove("hidden");
+
+await loadOrders();
+
+}catch(e){
+$("loginMsg").textContent="خطأ: "+e.message;
+$("loginMsg").classList.remove("hidden");
+}
+}
+
+async function loadOrders(){
+try{
+const d=await api("/api/orders");
+const list=d.orders||[];
+
+$("total").textContent=list.length;
+$("pending").textContent=list.filter(x=>x.status==="pending_offers").length;
+$("delivery").textContent=list.filter(x=>x.status==="in_delivery").length;
+$("done").textContent=list.filter(x=>x.status==="delivered").length;
+
+const box=$("orders");
+box.innerHTML="";
+
+if(!list.length){
+box.innerHTML="<tr><td colspan='7'>لا توجد طلبات</td></tr>";
+return;
+}
+
+list.forEach(o=>{
+const tr=document.createElement("tr");
+
+tr.innerHTML=
+"<td>"+o.id+"</td>"+
+"<td>"+(o.customer_name||"-")+"</td>"+
+"<td>"+(o.service_type||"-")+"</td>"+
+"<td>"+(o.store_name||"-")+"</td>"+
+"<td><span class='badge'>"+status(o.status)+"</span></td>"+
+"<td>"+(o.delivery_fee??"-")+" ريال</td>"+
+"<td class='order-actions'>"+
+"<button onclick='changeStatus("+o.id+",\"in_delivery\")'>🚚 بدء</button>"+
+"<button onclick='changeStatus("+o.id+",\"delivered\")'>✅ تسليم</button>"+
+"<button onclick='changeStatus("+o.id+",\"cancelled\")'>❌ إلغاء</button>"+
+"</td>";
+
+box.appendChild(tr);
+});
+
+}catch(e){
+if(e.message.includes("صلاح")||e.message.includes("دخول")){
+logout();
+return;
+}
+alert("تعذر تحميل الطلبات: "+e.message);
+}
+}
+
+async function changeStatus(id,s){
+try{
+await api("/api/orders/"+id+"/status",{
+method:"POST",
+body:JSON.stringify({status:s})
+});
+
+await loadOrders();
+
+}catch(e){
+alert("خطأ: "+e.message);
+}
+}
+
+function logout(){
+token=null;
+localStorage.removeItem("admin_token");
+$("app").classList.add("hidden");
+$("loginPage").classList.remove("hidden");
+}
+
+if(token){
+$("loginPage").classList.add("hidden");
+$("app").classList.remove("hidden");
+loadOrders();
+}
+</script>
+
+</body>
+</html>

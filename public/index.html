@@ -1,0 +1,338 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>توصيل طلبات البرك</title>
+<style>
+*{box-sizing:border-box;font-family:Arial,sans-serif}
+body{margin:0;background:#f0fdf4;color:#15803d}
+header{background:#16a34a;color:white;text-align:center;padding:25px}
+header h1{margin:0 0 8px}
+.container{width:min(700px,94%);margin:25px auto}
+.card{background:white;padding:20px;border-radius:16px;margin-bottom:18px;border:1px solid #bbf7d0;box-shadow:0 4px 15px rgba(22,163,74,.08)}
+h2{color:#16a34a}
+input,select,textarea,button{width:100%;padding:13px;margin-top:10px;border-radius:10px;font-size:16px}
+input,select,textarea{border:1px solid #bbf7d0;background:white;color:#15803d}
+textarea{min-height:90px}
+button{border:0;background:#16a34a;color:white;font-weight:bold}
+button:hover{background:#15803d}
+.secondary{background:white;color:#16a34a;border:2px solid #16a34a}
+.hidden{display:none}
+.msg{padding:12px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;margin-top:10px}
+.order{padding:15px;margin-top:12px;border:1px solid #bbf7d0;border-right:5px solid #16a34a;border-radius:10px}
+.badge{background:#16a34a;color:white;padding:5px 10px;border-radius:20px}
+.row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+@media(max-width:600px){.row{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+
+<header>
+<h1>🚚 توصيل طلبات البرك</h1>
+<p>خدمة توصيل سهلة وسريعة</p>
+</header>
+
+<div class="container">
+
+<section id="login" class="card">
+<h2>تسجيل الدخول</h2>
+<input id="phone" placeholder="رقم الجوال">
+<input id="password" type="password" placeholder="كلمة المرور">
+<button onclick="login()">تسجيل الدخول</button>
+<button class="secondary" onclick="register()">إنشاء حساب جديد</button>
+<div id="loginMsg" class="msg hidden"></div>
+</section>
+
+<section id="app" class="hidden">
+
+<div class="card">
+<h2>مرحباً 👋 <span id="name"></span></h2>
+<p>نوع الحساب: <b id="role"></b></p>
+<button class="secondary" onclick="logout()">تسجيل الخروج</button>
+</div>
+
+<div class="card">
+<h2>📦 إنشاء طلب</h2>
+
+<select id="service">
+<option value="مطاعم">مطاعم</option>
+<option value="متاجر">متاجر</option>
+<option value="صيدلية">صيدلية</option>
+<option value="أخرى">أخرى</option>
+</select>
+
+<input id="store" placeholder="اسم المتجر أو المطعم">
+<textarea id="items" placeholder="ماذا تريد توصيله؟"></textarea>
+<textarea id="note" placeholder="ملاحظات"></textarea>
+
+<h3>📍 موقع الاستلام</h3>
+<input id="pickupAddress" placeholder="اكتب اسم الحي أو الشارع">
+
+<h3>🏠 موقع التسليم</h3>
+<input id="dropoffAddress" placeholder="اكتب اسم الحي أو الشارع">
+
+<input type="hidden" id="plat" value="18.2167">
+<input type="hidden" id="plng" value="41.5350">
+<input type="hidden" id="dlat" value="18.2200">
+<input type="hidden" id="dlng" value="41.5400">
+
+<select id="payment">
+<option value="cash">الدفع عند الاستلام</option>
+<option value="online">دفع إلكتروني</option>
+</select>
+
+<button onclick="order()">🚚 إرسال الطلب</button>
+<div id="orderMsg" class="msg hidden"></div>
+</div>
+
+<div class="card">
+<h2>📋 طلباتي</h2>
+<button class="secondary" onclick="orders()">تحديث الطلبات</button>
+<div id="list"></div>
+</div>
+
+</section>
+</div>
+
+<script>
+let token=localStorage.getItem("token");
+
+async function api(url,opt={}){
+opt.headers={"Content-Type":"application/json",...(opt.headers||{})};
+if(token)opt.headers.Authorization="Bearer "+token;
+let r=await fetch(url,opt);
+let d=await r.json().catch(()=>({}));
+if(!r.ok)throw Error(d.error||"حدث خطأ");
+return d;
+}
+
+function msg(id,text){
+let e=document.getElementById(id);
+e.textContent=text;
+e.classList.remove("hidden");
+}
+
+async function login(){
+try{
+const phoneInput=document.getElementById("phone");
+const passwordInput=document.getElementById("password");
+
+const normalizePhone=(v)=>String(v||"")
+.replace(/[٠-٩]/g,c=>String("٠١٢٣٤٥٦٧٨٩".indexOf(c)))
+.replace(/[۰-۹]/g,c=>String("۰۱۲۳۴۵۶۷۸۹".indexOf(c)))
+.replace(/\\s+/g,"")
+.trim();
+
+const phoneValue=normalizePhone(phoneInput.value);
+const passwordValue=String(passwordInput.value||"").trim();
+
+if(!phoneValue||!passwordValue){
+msg("loginMsg","اكتب رقم الجوال وكلمة المرور");
+return;
+}
+
+const response=await fetch("/api/auth/login",{
+method:"POST",
+headers:{"Content-Type":"application/json"},
+body:JSON.stringify({
+phone:phoneValue,
+password:passwordValue
+})
+});
+
+const data=await response.json().catch(()=>({}));
+
+if(!response.ok){
+throw new Error(data.error||("خطأ HTTP "+response.status));
+}
+
+if(!data.token){
+throw new Error("السيرفر لم يرجع Token");
+}
+
+token=data.token;
+localStorage.setItem("token",data.token);
+
+document.getElementById("login").classList.add("hidden");
+document.getElementById("app").classList.remove("hidden");
+document.getElementById("name").textContent=data.user?.name||"";
+document.getElementById("role").textContent=data.user?.role||"";
+
+await orders();
+
+}catch(e){
+msg("loginMsg","خطأ: "+e.message);
+console.error("LOGIN ERROR:",e);
+}
+}
+
+async function register(){
+let n=prompt("اكتب اسمك");
+let p=prompt("اكتب رقم الجوال");
+let pass=prompt("اكتب كلمة المرور");
+if(!n||!p||!pass)return;
+try{
+let d=await api("/api/auth/register",{
+method:"POST",
+body:JSON.stringify({name:n,phone:p,password:pass})
+});
+token=d.token;
+localStorage.setItem("token",token);
+user();
+}catch(e){msg("loginMsg",e.message)}
+}
+
+
+async function order(){
+try{
+const pickupAddress=document.getElementById("pickupAddress")?.value.trim()||"";
+const dropoffAddress=document.getElementById("dropoffAddress")?.value.trim()||"";
+
+if(!pickupAddress||!dropoffAddress){
+msg("orderMsg","اكتب موقع الاستلام وموقع التسليم");
+return;
+}
+
+const noteValue=document.getElementById("note")?.value.trim()||"";
+
+const d=await api("/api/orders",{
+method:"POST",
+body:JSON.stringify({
+serviceType:document.getElementById("service").value,
+storeName:document.getElementById("store").value,
+items:document.getElementById("items").value,
+note:(noteValue?noteValue+" | ":"")+
+"الاستلام: "+pickupAddress+
+" | التسليم: "+dropoffAddress,
+pickup:{
+lat:Number(document.getElementById("plat").value),
+lng:Number(document.getElementById("plng").value)
+},
+dropoff:{
+lat:Number(document.getElementById("dlat").value),
+lng:Number(document.getElementById("dlng").value)
+},
+paymentMethod:document.getElementById("payment").value
+})
+});
+
+msg("orderMsg","تم إنشاء الطلب رقم "+d.order.id);
+await orders();
+
+}catch(e){
+msg("orderMsg","خطأ: "+e.message);
+console.error(e);
+}
+}
+
+async function orders(){
+try{
+const d=await api("/api/orders");
+const box=document.getElementById("list");
+
+box.innerHTML="";
+
+if(!d.orders||!d.orders.length){
+box.innerHTML="<p>لا توجد طلبات.</p>";
+return;
+}
+
+d.orders.forEach(o=>{
+const x=document.createElement("div");
+x.className="order";
+
+x.innerHTML=
+"<b>طلب #"+o.id+"</b>"+
+"<p>الخدمة: "+(o.service_type||"-")+"</p>"+
+"<p>المتجر: "+(o.store_name||"-")+"</p>"+
+"<p>الحالة: <span class='badge'>"+status(o.status)+"</span></p>"+
+"<p>الرسوم: "+(o.delivery_fee??"-")+" ريال</p>"+
+"<div id='offers-"+o.id+"'><p>جاري تحميل عروض المندوبين...</p></div>";
+
+box.appendChild(x);
+
+loadOffers(o.id);
+});
+
+}catch(e){
+document.getElementById("list").innerHTML=
+"<p>خطأ: "+e.message+"</p>";
+}
+}
+
+function status(s){
+return({
+pending_offers:"بانتظار عروض المندوبين",
+accepted:"تم قبول المندوب",
+in_delivery:"قيد التوصيل",
+delivered:"تم التسليم",
+cancelled:"ملغي"
+})[s]||s;
+}
+
+async function loadOffers(orderId){
+try{
+const d=await api("/api/orders/"+orderId+"/offers");
+const box=document.getElementById("offers-"+orderId);
+if(!box)return;
+
+if(!d.offers||!d.offers.length){
+box.innerHTML="<p>لا توجد عروض حتى الآن.</p>";
+return;
+}
+
+box.innerHTML="<h4>عروض المندوبين</h4>";
+
+d.offers.forEach(o=>{
+const div=document.createElement("div");
+div.className="order";
+div.innerHTML=
+"<p>👤 المندوب: "+(o.driver_name||"-")+"</p>"+
+"<p>💰 السعر: "+o.price+" ريال</p>"+
+"<p>📞 الجوال: "+(o.driver_phone||"-")+"</p>"+
+(o.status==="pending"
+?"<button onclick='acceptOffer("+orderId+","+o.id+")'>✅ قبول العرض</button>"
+:"<p>حالة العرض: "+o.status+"</p>");
+box.appendChild(div);
+});
+}catch(e){
+const box=document.getElementById("offers-"+orderId);
+if(box)box.innerHTML="<p>تعذر تحميل العروض: "+e.message+"</p>";
+}
+}
+
+async function acceptOffer(orderId,offerId){
+try{
+await api("/api/orders/"+orderId+"/accept-offer/"+offerId,{
+method:"POST"
+});
+alert("تم قبول عرض المندوب ✅");
+await orders();
+}catch(e){
+alert("خطأ: "+e.message);
+}
+}
+
+async function user(){
+try{
+let d=await api("/api/auth/me");
+document.getElementById("login").classList.add("hidden");
+document.getElementById("app").classList.remove("hidden");
+document.getElementById("name").textContent=d.user.name;
+document.getElementById("role").textContent=d.user.role;
+await orders();
+}catch(e){logout()}
+}
+function logout(){
+token=null;
+localStorage.removeItem("token");
+document.getElementById("app").classList.add("hidden");
+document.getElementById("login").classList.remove("hidden");
+}
+
+if(token)user();
+</script>
+
+</body>
+</html>

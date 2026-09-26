@@ -1,0 +1,22 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: tawseel
+      POSTGRES_USER: tawseel
+      POSTGRES_PASSWORD: tawseel_password
+    ports: ['5432:5432']
+    volumes: [tawseel_pgdata:/var/lib/postgresql/data]
+  server:
+    build: .
+    restart: unless-stopped
+    depends_on: [db]
+    environment:
+      PORT: 3000
+      DATABASE_URL: postgresql://tawseel:tawseel_password@db:5432/tawseel
+      JWT_SECRET: CHANGE_THIS_SECRET
+      CORS_ORIGIN: '*'
+    ports: ['3000:3000']
+volumes:
+  tawseel_pgdata:

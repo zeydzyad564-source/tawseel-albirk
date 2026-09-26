@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>لوحة المندوب - توصيل طلبات البرك</title>
+
+<style>
+*{box-sizing:border-box;font-family:Arial,sans-serif}
+body{margin:0;background:#f0fdf4;color:#166534}
+header{background:linear-gradient(135deg,#16a34a,#15803d);color:white;text-align:center;padding:28px 15px}
+header h1{margin:0 0 8px;font-size:27px}
+.container{width:min(700px,94%);margin:22px auto}
+.card{background:white;padding:20px;border-radius:18px;margin-bottom:18px;border:1px solid #bbf7d0;box-shadow:0 5px 18px rgba(22,163,74,.08)}
+h2{color:#16a34a;margin-top:0}
+input,button{width:100%;padding:13px;margin-top:10px;border-radius:11px;font-size:16px}
+input{border:1px solid #bbf7d0;color:#166534}
+button{border:0;background:#16a34a;color:white;font-weight:bold}
+button:hover{background:#15803d}
+.secondary{background:white;color:#16a34a;border:2px solid #16a34a}
+.hidden{display:none}
+.msg{padding:12px;background:#f0fdf4;border:1px solid #bbf7d0;border-radius:10px;margin-top:10px}
+.order{padding:17px;margin-top:14px;border:1px solid #bbf7d0;border-right:5px solid #16a34a;border-radius:14px}
+.badge{display:inline-block;background:#16a34a;color:white;padding:5px 10px;border-radius:20px}
+.price{font-size:20px;font-weight:bold;color:#15803d;margin-top:10px}
+</style>
+</head>
+
+<body>
+
+<header>
+<h1>🚚 توصيل طلبات البرك</h1>
+<p>لوحة المندوب</p>
+</header>
+
+<div class="container">
+
+<section id="login" class="card">
+<h2>🔐 دخول المندوب</h2>
+
+<input id="phone" placeholder="رقم الجوال">
+<input id="password" type="password" placeholder="كلمة المرور">
+
+<button onclick="login()">تسجيل الدخول</button>
+
+<div id="loginMsg" class="msg hidden"></div>
+</section>
+
+<section id="app" class="hidden">
+
+<div class="card">
+<h2>مرحباً 👋 <span id="name"></span></h2>
+<p>الحالة: <b>مندوب</b></p>
+
+<button class="secondary" onclick="orders()">🔄 تحديث الطلبات</button>
+<button class="secondary" onclick="logout()">تسجيل الخروج</button>
+</div>
+
+<div class="card">
+<h2>📦 الطلبات المتاحة</h2>
+<div id="box">جاري تحميل الطلبات...</div>
+</div>
+
+</section>
+
+</div>
+
+<script>
+
+let token=localStorage.getItem("driver_token");
+
+async function api(url,opt={}){
+opt.headers={
+"Content-Type":"application/json",
+...(opt.headers||{})
+};
+
+if(token){
+opt.headers.Authorization="Bearer "+token;
+}
+
+let r=await fetch(url,opt);
+let d=await r.json().catch(()=>({}));
+
+if(!r.ok){
+throw Error(d.error||"حدث خطأ");
+}
+
+return d;
+}
+
+function msg(id,text){
+let e=document.getElementById(id);
+e.textContent=text;
+e.classList.remove("hidden");
+}
+
+async function login(){
+
+try{
+
+let phoneInput=document.getElementById("phone");
+let passwordInput=document.getElementById("password");
+
+let d=await api("/api/auth/login",{
+method:"POST",
+body:JSON.stringify({
+phone:phoneInput.value,
+password:passwordInput.value
+})
+});
+
+if(d.user.role!=="driver"){
+throw Error("هذا الحساب ليس حساب مندوب");
+}
+
+token=d.token;
+
+localStorage.setItem("driver_token",token);
+
+await user();
+
+}catch(e){
+
+msg("loginMsg",e.message);
+
+}
+
+}
+
+async function user(){
+
+try{
+
+let d=await api("/api/auth/me");
+
+document.getElementById("login").classList.add("hidden");
+document.getElementById("app").classList.remove("hidden");
+
+document.getElementById("name").textContent=d.user.name;
+
+await orders();
+
+}catch(e){
+
+logout();
+
+}
+
+}
+
+async function orders(){
+
+let box=document.getElementById("box");
+
+try{
+
+let d=await api("/api/orders");
+
+if(!d.orders.length){
+
+box.innerHTML="<p>لا توجد طلبات متاحة.</p>";
+
+return;
+
+}
+
+box.innerHTML="";
+
+d.orders.forEach(o=>{
+
+let x=document.createElement("div");
+
+x.className="order";
+
+x.innerHTML=
+
+"<b>📦 طلب #"+o.id+"</b>"+
+
+"<p>الخدمة: "+(o.service_type||"-")+"</p>"+
+
+"<p>المتجر: "+(o.store_name||"-")+"</p>"+
+
+"<p>العميل: "+(o.customer_name||"-")+"</p>"+
+
+"<p>الحالة: <span class='badge'>"+status(o.status)+"</span></p>"+
+
+"<p>رسوم التوصيل: "+(o.delivery_fee||0)+" ريال</p>"+
+
+"<p>📍 المسافة: "+(o.distance_km||"-")+" كم</p>";
+
+if(o.status==="pending_offers"){
+
+x.innerHTML+=
+
+"<input id='price_"+o.id+"' type='number' min='0' placeholder='اكتب سعرك بالريال'>"+
+
+"<button onclick='offer("+o.id+")'>💰 إرسال العرض</button>";
+
+}
+
+if(o.status==="accepted" && o.driver_id){
+
+x.innerHTML+=
+
+"<button onclick=\"changeStatus('"+o.id+"','in_delivery')\">🚚 بدء التوصيل</button>";
+
+}
+
+if(o.status==="in_delivery" && o.driver_id){
+
+x.innerHTML+=
+
+"<button onclick=\"changeStatus('"+o.id+"','delivered')\">✅ تم التسليم</button>";
+
+}
+
+box.appendChild(x);
+
+});
+
+}catch(e){
+
+box.innerHTML="<div class='card'>"+e.message+"</div>";
+
+}
+
+}
+
+async function offer(id){
+
+let input=document.getElementById("price_"+id);
+
+let p=Number(input.value);
+
+if(!Number.isFinite(p)||p<0){
+
+alert("اكتب سعرًا صحيحًا");
+
+return;
+
+}
+
+try{
+
+await api("/api/orders/"+id+"/offers",{
+method:"POST",
+body:JSON.stringify({price:p})
+});
+
+alert("تم إرسال العرض ✅");
+
+await orders();
+
+}catch(e){
+
+alert(e.message);
+
+}
+
+}
+
+async function changeStatus(id,newStatus){
+
+try{
+
+await api("/api/orders/"+id+"/status",{
+method:"POST",
+body:JSON.stringify({status:newStatus})
+});
+
+alert("تم تحديث حالة الطلب ✅");
+
+await orders();
+
+}catch(e){
+
+alert(e.message);
+
+}
+
+}
+
+function status(s){
+
+return({
+
+pending_offers:"بانتظار عروض المندوبين",
+accepted:"تم قبول المندوب",
+in_delivery:"قيد التوصيل",
+delivered:"تم التسليم",
+cancelled:"ملغي"
+
+})[s]||s;
+
+}
+
+function logout(){
+
+token=null;
+
+localStorage.removeItem("driver_token");
+
+document.getElementById("app").classList.add("hidden");
+document.getElementById("login").classList.remove("hidden");
+
+}
+
+if(token){
+
+user();
+
+}
+
+</script>
+
+</body>
+</html>
